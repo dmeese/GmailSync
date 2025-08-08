@@ -9,7 +9,7 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import BatchHttpRequest
 
 # Import the shared utility functions
-from gmail_utils import get_gmail_service, get_secret_from_1password
+from gmail_utils import execute_batch_with_backoff, add_common_gmail_args, initialize_gmail_service
 
 # If modifying these scopes, delete the file token.json.
 # The 'gmail.modify' scope is required to add labels to emails.
@@ -54,12 +54,8 @@ def fetch_email_headers(service, max_results=100):
                     userId='me', id=message['id'], format='metadata',
                     metadataHeaders=['Subject', 'From', 'Date', 'To', 'List-Unsubscribe']
                 ))
-            try:
-                batch.execute()
-                time.sleep(1)  # Add a 1-second pause to respect concurrency limits
-            except HttpError as error:
-                # This could happen if the entire batch fails for some reason
-                print(f"An error occurred during a batch fetch execution: {error}")
+            execute_batch_with_backoff(batch)
+            time.sleep(0.5)  # Add a small pause to be a good API citizen
 
         return headers_list
 
@@ -149,11 +145,8 @@ def apply_label_to_emails_batch(service, message_ids, label_id, label_name):
                 id=message_id,
                 body=body
             ))
-        try:
-            batch.execute()
-            time.sleep(1)  # Add a 1-second pause to respect concurrency limits
-        except HttpError as error:
-            print(f"An error occurred during a batch execution: {error}")
+        execute_batch_with_backoff(batch)
+        time.sleep(0.5)  # Add a small pause to be a good API citizen
 
 def apply_domain_labels(service, df, parent_label_name, all_labels_map):
     """Groups emails by sender domain and applies a nested label."""
@@ -194,23 +187,11 @@ def main():
         metavar='PARENT_LABEL',
         help="Apply nested labels under a PARENT_LABEL. If no label name is provided, defaults to 'unsubscribe'."
     )
-    parser.add_argument(
-        '--creds',
-        default='credentials.json',
-        help="Path to credentials.json or a 1Password secret reference (e.g., 'op://vault/item/field')."
-    )
+    add_common_gmail_args(parser)
     args = parser.parse_args()
 
     print("--- Gmail Analyzer ---")
-    service = None
-    creds_arg = args.creds
-    if creds_arg.startswith("op://"):
-        print("Fetching Gmail credentials from 1Password...")
-        creds_content = get_secret_from_1password(creds_arg)
-        if creds_content:
-            service = get_gmail_service(SCOPES, credentials_json_content=creds_content)
-    else:
-        service = get_gmail_service(SCOPES, credentials_path=creds_arg)
+    service = initialize_gmail_service(args, SCOPES)
 
     if not service:
         return

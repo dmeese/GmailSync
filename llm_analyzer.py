@@ -90,7 +90,7 @@ def analyze_batch_with_llm(model, user_prompt, message_batch, max_retries=3):
                 error_output = [f"--- ANALYSIS FOR MESSAGE-ID: {msg['id']} ---\nError after {max_retries} retries: {e}\n--- END ANALYSIS ---" for msg in message_batch]
                 return "\n\n".join(error_output)
             
-            # Exponential backoff: wait 5, 10, 20 seconds...
+            # Exponential backoff: wait 5, 10, 20 seconds for subsequent retries...
             wait_time = 5 * (2 ** attempt)
             print(f"Waiting for {wait_time} seconds before retrying...")
             time.sleep(wait_time)

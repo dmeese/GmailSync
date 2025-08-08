@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from googleapiclient.errors import HttpError
 
 # Import the shared utility functions
-from gmail_utils import get_gmail_service, get_secret_from_1password
+from gmail_utils import execute_batch_with_backoff, add_common_gmail_args, initialize_gmail_service
 
 # This script only needs to read emails, so a readonly scope is sufficient and safer.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -117,11 +117,8 @@ def fetch_and_save_messages(service, message_ids, output_file):
             for message_id in chunk:
                 # Request 'full' format to get the body
                 batch.add(service.users().messages().get(userId='me', id=message_id, format='full'))
-            try:
-                batch.execute()
-                time.sleep(1) # Pause to respect concurrency limits
-            except HttpError as error:
-                print(f"An error occurred during a batch fetch execution: {error}")
+            execute_batch_with_backoff(batch)
+            time.sleep(0.5)  # Pause to be a good API citizen
 
 def valid_date(s):
     """Helper function to validate date format for argparse."""
@@ -135,11 +132,7 @@ def valid_date(s):
 def main():
     """Main function to run the Gmail archiver."""
     parser = argparse.ArgumentParser(description="Archive Gmail messages from a specific date range to a text file.")
-    parser.add_argument(
-        '--creds',
-        default='credentials.json',
-        help="Path to credentials.json or a 1Password secret reference (e.g., 'op://vault/item/field')."
-    )
+    add_common_gmail_args(parser)
     parser.add_argument(
         '--start-date',
         required=True,
@@ -161,15 +154,7 @@ def main():
 
     print("--- Gmail Archiver ---")
     
-    service = None
-    creds_arg = args.creds
-    if creds_arg.startswith("op://"):
-        print("Fetching Gmail credentials from 1Password...")
-        creds_content = get_secret_from_1password(creds_arg)
-        if creds_content:
-            service = get_gmail_service(SCOPES, credentials_json_content=creds_content)
-    else:
-        service = get_gmail_service(SCOPES, credentials_path=creds_arg)
+    service = initialize_gmail_service(args, SCOPES)
     if not service:
         return
 

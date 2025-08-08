@@ -9,7 +9,7 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import BatchHttpRequest
 
 # Import the shared utility functions
-from gmail_utils import get_gmail_service, get_secret_from_1password
+from gmail_utils import execute_batch_with_backoff, add_common_gmail_args, initialize_gmail_service
 
 # This script only needs to read emails, so a readonly scope is sufficient and safer.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -90,22 +90,15 @@ def fetch_senders_in_batches(service, message_ids):
                 userId='me', id=message_id, format='metadata',
                 metadataHeaders=['From']
             ))
-        try:
-            batch.execute()
-            time.sleep(1) # Pause to respect concurrency limits
-        except HttpError as error:
-            print(f"An error occurred during a batch fetch execution: {error}")
-            
+        execute_batch_with_backoff(batch)
+        time.sleep(0.5)  # Pause to be a good API citizen
+
     return senders_list
 
 def main():
     """Main function to run the Gmail sender counter."""
     parser = argparse.ArgumentParser(description="Count all emails from each sender in your Gmail account.")
-    parser.add_argument(
-        '--creds',
-        default='credentials.json',
-        help="Path to credentials.json or a 1Password secret reference (e.g., 'op://vault/item/field')."
-    )
+    add_common_gmail_args(parser)
     parser.add_argument(
         '--output',
         default='sender_counts.csv',
@@ -123,15 +116,7 @@ def main():
     if not args.limit:
         print("WARNING: This script will scan your ENTIRE mailbox, which may take a long time.")
     
-    service = None
-    creds_arg = args.creds
-    if creds_arg.startswith("op://"):
-        print("Fetching Gmail credentials from 1Password...")
-        creds_content = get_secret_from_1password(creds_arg)
-        if creds_content:
-            service = get_gmail_service(SCOPES, credentials_json_content=creds_content)
-    else:
-        service = get_gmail_service(SCOPES, credentials_path=creds_arg)
+    service = initialize_gmail_service(args, SCOPES)
     if not service:
         return
 
